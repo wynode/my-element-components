@@ -24,7 +24,7 @@
       <template>
         <el-button size="small" type="primary">点击上传</el-button>
         <div slot="tip" class="el-upload__tip">
-          只能上传 {{ limitFileType.join(",") }}文件，且不超过
+          只能上传 {{ limitFileType }}文件，且不超过
           {{ limitSize }}m，支持剪切板上传
         </div>
       </template>
@@ -65,15 +65,19 @@ export default {
       type: String,
       default: "",
     },
+    responseKey: {
+      // 需要取的fileList里面的值，可以取
+      // raw（二进制binary）
+      // base64（base64）
+      // url，id等需后端返回的字段
+      type: String,
+      default: "raw",
+    },
     responseValue: {
       type: [String, Number],
       default: "",
     },
     responseValueList: {
-      type: Array,
-      default: () => [],
-    },
-    fileListBase64: {
       type: Array,
       default: () => [],
     },
@@ -88,9 +92,9 @@ export default {
       default: 5,
     },
     limitFileType: {
-      // 限制上传文件类型
-      type: Array,
-      default: () => [],
+      // 限制文件上传类型（只做提示用）
+      type: String,
+      default: "image",
     },
     initFileListData: {
       // 初始化FileList
@@ -100,10 +104,6 @@ export default {
     uploadFieldName: {
       type: String,
       default: "file",
-    },
-    responseKey: {
-      type: String,
-      default: "url",
     },
     uploadUrl: {
       type: String,
@@ -163,6 +163,7 @@ export default {
   },
 
   methods: {
+    // 二进制binary转base64
     transFile2Base64(fileObj) {
       const reader = new FileReader()
       return new Promise((resolve) => {
@@ -173,21 +174,7 @@ export default {
       })
     },
 
-    updatePropsData() {
-      this.$emit(
-        "update:responseValue",
-        this.fileList[0] ? this.fileList[0][this.responseKey] : ""
-      )
-      this.$emit(
-        "update:responseValueList",
-        this.fileList.map((item) => item[this.responseKey])
-      )
-      this.$emit(
-        "update:fileListBase64",
-        this.fileList.map((item) => item.base64)
-      )
-    },
-
+    // 处理上传错误
     handleDealWithUploadError(error) {
       let { data: errorMsg } = error.response || {}
       // 这么写是为了防止data是null
@@ -202,6 +189,17 @@ export default {
       }
     },
 
+    // 更新responseValue即上传后返回的值
+    updateResponseValue() {
+      const res = this.fileList.map((item) => item[this.responseKey] || "")
+      if (this.limit === 1) {
+        this.$emit("update:responseValue", res[0])
+      } else {
+        this.$emit("update:responseValue", res)
+      }
+    },
+
+    // 文件超过数量钩子
     handleExceed(files, fileList) {
       const tip = `当前限制选择 ${this.limit} 个文件，本次选择了 ${
         files.length
@@ -209,6 +207,7 @@ export default {
       this.$message.warning(tip)
     },
 
+    // 上传之前检查是否为空和文件大小
     beforeUpload(file = { size: 0, type: "" }) {
       if (!file || file.size === 0) {
         this.$message.error("不能上传空文件")
@@ -216,52 +215,46 @@ export default {
       }
       const isLimitScope = file.size / 1024 / 1024 < this.limitSize
       if (!isLimitScope) {
-        this.$message.error(`上传头像图片大小不能超过 ${this.limitSize}MB!`)
+        this.$message.error(`上传的文件大小不能超过 ${this.limitSize}MB!`)
         return false
-      }
-
-      if (this.limitFileType.length) {
-        const isLimitFileType = this.limitFileType.reduce((acc, cur) => {
-          return (file.type && file.type.includes(cur)) || acc
-        }, false)
-        if (!isLimitFileType) {
-          this.$message.error("上传文件不符合文件格式要求!")
-          return false
-        }
       }
       return true
     },
 
+    // 用户选择文件或者粘贴复制文件后的钩子
     async handleFileChange(comFile) {
       if (!this.beforeUpload(comFile.raw)) {
         this.handleRemove(comFile)
         return
       }
+      let base64Data = ""
+      if (this.needBase64) {
+        base64Data = await this.transFile2Base64(comFile.raw)
+      }
+      this.fileList.push({
+        uid: new Date().getTime(),
+        name: comFile.name,
+        size: comFile.size,
+        raw: comFile.raw,
+        type: comFile.raw && comFile.raw.type,
+        percentage: 0,
+        status: "ready",
+        previewUrl: URL.createObjectURL(comFile.raw),
+        base64: base64Data,
+      })
       // 不需要上传
       if (!this.autoUpload) {
-        let base64Data = ""
-        if (this.needBase64) {
-          base64Data = await this.transFile2Base64(comFile.raw)
-        }
-        this.fileList.push({
-          name: comFile.name,
-          size: comFile.size,
-          raw: comFile.raw,
-          type: comFile.raw && comFile.raw.type,
-          percentage: 0,
-          status: "ready",
-          previewUrl: URL.createObjectURL(comFile.raw),
-          base64: base64Data,
-        })
+        this.updateResponseValue()
         return
       }
-
-      // 否则就是直接上传
-      this.submit(comFile)
+      // 直接上传
+      this.submit(this.fileList.slice(-1))
     },
 
+    // 上传传入的单个file
     submit(comFile) {
       const formData = new FormData()
+      // 表单名称，表单的值，传给服务器的名称
       formData.append(this.uploadFieldName, comFile.raw, comFile.name)
       $http
         .post(this.uploadUrl, formData, {
@@ -277,36 +270,30 @@ export default {
         })
     },
 
+    // 手动上传文件列表（提供给外部调用）
     submitFileList() {
       if (this.fileList.length) {
         this.fileList.forEach((item) => {
           this.submit(item || {})
         })
+      } else {
+        this.$message.error("未选择或粘贴文件")
       }
     },
 
-    async handleSuccess(res, comFile) {
+    async handleSuccess(res, file) {
       let responseKeyValue = ""
-      let base64Data = ""
       if (res && this.responseKey) {
         responseKeyValue = res[this.responseKey]
       }
-      if (this.needBase64) {
-        base64Data = await this.transFile2Base64(comFile.raw)
-      }
-
-      this.fileList.push({
-        name: comFile.name,
-        size: comFile.size,
-        raw: comFile.raw,
-        type: comFile.raw && comFile.raw.type,
-        percentage: 100,
-        status: "success",
-        previewUrl: URL.createObjectURL(comFile.raw),
-        [this.responseKey]: responseKeyValue,
-        base64: base64Data,
+      this.fileList.forEach((item) => {
+        if (file.uid === item.uid) {
+          item.percentage = 100
+          item.status = "success"
+          item[this.responseKey] = responseKeyValue
+        }
       })
-      this.updatePropsData()
+      this.updateResponseValue()
       this.$emit("success")
     },
 
@@ -327,7 +314,7 @@ export default {
       this.fileList = this.fileList.filter((item) => {
         return item.name !== comFile.name
       })
-      this.updatePropsData()
+      this.updateResponseValue()
       this.$emit("remove")
     },
 
@@ -353,14 +340,13 @@ export default {
             this.$message.warning("未识别的文件格式，请谨慎上传！")
           }
           const comFile = {
-            status: "ready",
             name: file.name,
             type: file.type,
             size: file.size,
-            percentage: 0,
-            uid: Date.now(),
             raw: file,
           }
+          // 这样写是为了和element的fileChange钩子传入值保持一致,主要是创造了file.raw用来存储file
+          // 据此，本组件中所有comFile即为包装了file.raw的上传文件对象
 
           this.handleFileChange(comFile)
         }
