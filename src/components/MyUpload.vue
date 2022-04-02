@@ -24,7 +24,7 @@
       <template>
         <el-button size="small" type="primary">点击上传</el-button>
         <div slot="tip" class="el-upload__tip">
-          只能上传 {{ limitFileType }}文件，且不超过
+          可上传{{ limitFileType }}文件，且不超过
           {{ limitSize }}m，支持剪切板上传
         </div>
       </template>
@@ -36,16 +36,16 @@
 </template>
 
 <script>
-import axios from "axios"
-import { BACKEND_API, TOKEN_NAME } from "@/config"
+import axios from 'axios'
+import { BACKEND, TOKEN_NAME } from '@/config'
 
 const $http = axios.create({
-  baseURL: BACKEND_API,
+  baseURL: BACKEND,
   timeout: 3 * 60 * 1000, // 3 minutes
-  responseType: "json",
+  responseType: 'json',
   headers: {
-    "Content-Type": "application/json",
-    Accept: "application/json",
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
   },
 })
 
@@ -63,7 +63,7 @@ export default {
       // excel速写：.xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
       // word速写：.doc,.docx,.xml,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document
       type: String,
-      default: "",
+      default: '',
     },
     responseKey: {
       // 需要取的fileList里面的值，可以取
@@ -71,11 +71,11 @@ export default {
       // base64（base64）
       // url，id等需后端返回的字段
       type: String,
-      default: "raw",
+      default: 'raw',
     },
     responseValue: {
       type: [String, Number],
-      default: "",
+      default: '',
     },
     responseValueList: {
       type: Array,
@@ -94,7 +94,7 @@ export default {
     limitFileType: {
       // 限制文件上传类型（只做提示用）
       type: String,
-      default: "image",
+      default: '',
     },
     initFileListData: {
       // 初始化FileList
@@ -103,15 +103,15 @@ export default {
     },
     uploadFieldName: {
       type: String,
-      default: "file",
+      default: 'file',
     },
     uploadUrl: {
       type: String,
-      default: "",
+      default: '',
     },
     listType: {
       type: String,
-      default: "text",
+      default: 'text',
     },
     autoUpload: {
       type: Boolean,
@@ -126,7 +126,7 @@ export default {
   data() {
     return {
       previewImageDialogVis: false,
-      previewImageUrl: "",
+      previewImageUrl: '',
       fileList: [],
     }
   },
@@ -134,7 +134,7 @@ export default {
   computed: {
     headers() {
       const token = localStorage.getItem(TOKEN_NAME)
-      if (typeof token === "string") {
+      if (typeof token === 'string') {
         return {
           Authorization: `JWT ${token}`,
         }
@@ -152,8 +152,8 @@ export default {
         if (newValue.length) {
           newValue.forEach((item) => {
             this.fileList.push({
-              type: "image",
-              name: item.split("/").pop(),
+              type: 'image',
+              name: item.split('/').pop(),
               previewUrl: item,
             })
           })
@@ -178,10 +178,10 @@ export default {
     handleDealWithUploadError(error) {
       let { data: errorMsg } = error.response || {}
       // 这么写是为了防止data是null
-      errorMsg = errorMsg || "上传出现错误，请联系管理员"
-      if (typeof errorMsg === "string") {
+      errorMsg = errorMsg || '上传出现错误，请联系管理员'
+      if (typeof errorMsg === 'string') {
         this.$message.error(errorMsg)
-      } else if (typeof errorMsg === "object") {
+      } else if (typeof errorMsg === 'object') {
         const errorMsgList = Object.values(errorMsg)
         if (errorMsgList.length) {
           this.$message.error(`${errorMsgList}`)
@@ -191,11 +191,11 @@ export default {
 
     // 更新responseValue即上传后返回的值
     updateResponseValue() {
-      const res = this.fileList.map((item) => item[this.responseKey] || "")
+      const res = this.fileList.map((item) => item[this.responseKey] || '')
       if (this.limit === 1) {
-        this.$emit("update:responseValue", res[0])
+        this.$emit('update:responseValue', res[0])
       } else {
-        this.$emit("update:responseValue", res)
+        this.$emit('update:responseValue', res)
       }
     },
 
@@ -208,9 +208,9 @@ export default {
     },
 
     // 上传之前检查是否为空和文件大小
-    beforeUpload(file = { size: 0, type: "" }) {
+    beforeUpload(file = { size: 0, type: '' }) {
       if (!file || file.size === 0) {
-        this.$message.error("不能上传空文件")
+        this.$message.error('不能上传空文件')
         return false
       }
       const isLimitScope = file.size / 1024 / 1024 < this.limitSize
@@ -227,7 +227,7 @@ export default {
         this.handleRemove(comFile)
         return
       }
-      let base64Data = ""
+      let base64Data = ''
       if (this.needBase64) {
         base64Data = await this.transFile2Base64(comFile.raw)
       }
@@ -238,7 +238,7 @@ export default {
         raw: comFile.raw,
         type: comFile.raw && comFile.raw.type,
         percentage: 0,
-        status: "ready",
+        status: 'ready',
         previewUrl: URL.createObjectURL(comFile.raw),
         base64: base64Data,
       })
@@ -248,13 +248,14 @@ export default {
         return
       }
       // 直接上传
-      this.submit(this.fileList.slice(-1))
+      this.submit(this.fileList.slice(-1)[0])
     },
 
     // 上传传入的单个file
     submit(comFile) {
       const formData = new FormData()
       // 表单名称，表单的值，传给服务器的名称
+      debugger
       formData.append(this.uploadFieldName, comFile.raw, comFile.name)
       $http
         .post(this.uploadUrl, formData, {
@@ -277,24 +278,24 @@ export default {
           this.submit(item || {})
         })
       } else {
-        this.$message.error("未选择或粘贴文件")
+        this.$message.error('未选择或粘贴文件')
       }
     },
 
     async handleSuccess(res, file) {
-      let responseKeyValue = ""
+      let responseKeyValue = ''
       if (res && this.responseKey) {
         responseKeyValue = res[this.responseKey]
       }
       this.fileList.forEach((item) => {
         if (file.uid === item.uid) {
           item.percentage = 100
-          item.status = "success"
+          item.status = 'success'
           item[this.responseKey] = responseKeyValue
         }
       })
       this.updateResponseValue()
-      this.$emit("success")
+      this.$emit('success')
     },
 
     // handleProgress(event, file, fileList) {
@@ -302,11 +303,11 @@ export default {
     // },
 
     handlePreview(comFile) {
-      if (comFile.type && comFile.type.includes("image")) {
+      if (comFile.type && comFile.type.includes('image')) {
         this.previewImageUrl = comFile.previewUrl
         this.previewImageDialogVis = true
       } else {
-        window.open(comFile.previewUrl || comFile.url, "_blank")
+        window.open(comFile.previewUrl || comFile.url, '_blank')
       }
     },
 
@@ -315,29 +316,29 @@ export default {
         return item.name !== comFile.name
       })
       this.updateResponseValue()
-      this.$emit("remove")
+      this.$emit('remove')
     },
 
     async handlePasteData(e) {
       if (!(e.clipboardData && e.clipboardData.items)) {
-        this.$notify.error("未获取到剪切板数据，请手动上传")
+        this.$notify.error('未获取到剪切板数据，请手动上传')
         return false
       }
       const clipboardItems = e.clipboardData.items
       for (let i = 0; i < clipboardItems.length; i += 1) {
         if (
-          clipboardItems[i].kind === "string" &&
-          clipboardItems[i].type.match("^text/plain")
+          clipboardItems[i].kind === 'string' &&
+          clipboardItems[i].type.match('^text/plain')
         ) {
           // 此方法可用于获取剪切板文字
           // clipboardItems[i].getAsString(function(text) {
           //   console.log(text)
           // })
-          this.$message.warning("你的剪切板没有文件！")
-        } else if (clipboardItems[i].kind === "file") {
+          this.$message.warning('你的剪切板没有文件！')
+        } else if (clipboardItems[i].kind === 'file') {
           const file = clipboardItems[i].getAsFile() || {}
           if (!file.type) {
-            this.$message.warning("未识别的文件格式，请谨慎上传！")
+            this.$message.warning('未识别的文件格式，请谨慎上传！')
           }
           const comFile = {
             name: file.name,
@@ -356,20 +357,20 @@ export default {
     },
 
     registerPasteEvent() {
-      document.addEventListener("paste", this.handlePasteData, false)
+      document.addEventListener('paste', this.handlePasteData, false)
     },
 
     handleManulDestory() {
       this.fileList.forEach((file) => {
-        if (file.url && file.url.indexOf("blob:") === 0) {
+        if (file.url && file.url.indexOf('blob:') === 0) {
           URL.revokeObjectURL(file.url)
         }
-        if (file.previewUrl && file.previewUrl.indexOf("blob:") === 0) {
+        if (file.previewUrl && file.previewUrl.indexOf('blob:') === 0) {
           URL.revokeObjectURL(file.previewUrl)
         }
       })
       this.fileList = []
-      document.removeEventListener("paste", this.handlePasteData, false)
+      document.removeEventListener('paste', this.handlePasteData, false)
     },
   },
 
@@ -387,15 +388,15 @@ export default {
 
   beforeDestroy() {
     this.fileList.forEach((file) => {
-      if (file.url && file.url.indexOf("blob:") === 0) {
+      if (file.url && file.url.indexOf('blob:') === 0) {
         URL.revokeObjectURL(file.url)
       }
-      if (file.previewUrl && file.previewUrl.indexOf("blob:") === 0) {
+      if (file.previewUrl && file.previewUrl.indexOf('blob:') === 0) {
         URL.revokeObjectURL(file.previewUrl)
       }
     })
     this.fileList = []
-    document.removeEventListener("paste", this.handlePasteData, false)
+    document.removeEventListener('paste', this.handlePasteData, false)
   },
 }
 </script>
