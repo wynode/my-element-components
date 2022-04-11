@@ -73,13 +73,10 @@ export default {
       type: String,
       default: 'raw',
     },
-    responseValue: {
-      type: [String, Number],
+    value: {
+      // 从fileList里取responseKey的值，更新绑定。
+      type: [String, Number, Array],
       default: '',
-    },
-    responseValueList: {
-      type: Array,
-      default: () => [],
     },
     limit: {
       // 限制文件数量
@@ -95,11 +92,6 @@ export default {
       // 限制文件上传类型（只做提示用）
       type: String,
       default: '',
-    },
-    initFileListData: {
-      // 初始化FileList
-      type: Array,
-      default: () => [],
     },
     uploadFieldName: {
       type: String,
@@ -120,6 +112,10 @@ export default {
     needBase64: {
       type: Boolean,
       default: false,
+    },
+    needInitFileList: {
+      type: Boolean,
+      default: true,
     },
   },
 
@@ -142,23 +138,6 @@ export default {
       return {
         Authorization: `JWT ${JSON.parse(token)}`,
       }
-    },
-  },
-
-  watch: {
-    initFileListData: {
-      immediate: true,
-      handler(newValue) {
-        if (newValue.length) {
-          newValue.forEach((item) => {
-            this.fileList.push({
-              type: 'image',
-              name: item.split('/').pop(),
-              previewUrl: item,
-            })
-          })
-        }
-      },
     },
   },
 
@@ -193,9 +172,9 @@ export default {
     updateResponseValue() {
       const res = this.fileList.map((item) => item[this.responseKey] || '')
       if (this.limit === 1) {
-        this.$emit('update:responseValue', res[0])
+        this.$emit('input', res[0])
       } else {
-        this.$emit('update:responseValue', res)
+        this.$emit('input', res)
       }
     },
 
@@ -255,7 +234,6 @@ export default {
     submit(comFile) {
       const formData = new FormData()
       // 表单名称，表单的值，传给服务器的名称
-      debugger
       formData.append(this.uploadFieldName, comFile.raw, comFile.name)
       $http
         .post(this.uploadUrl, formData, {
@@ -313,7 +291,7 @@ export default {
 
     handleRemove(comFile) {
       this.fileList = this.fileList.filter((item) => {
-        return item.name !== comFile.name
+        return item.uid !== comFile.uid
       })
       this.updateResponseValue()
       this.$emit('remove')
@@ -334,7 +312,7 @@ export default {
           // clipboardItems[i].getAsString(function(text) {
           //   console.log(text)
           // })
-          this.$message.warning('你的剪切板没有文件！')
+          // this.$message.warning('你的剪切板没有文件！')
         } else if (clipboardItems[i].kind === 'file') {
           const file = clipboardItems[i].getAsFile() || {}
           if (!file.type) {
@@ -361,10 +339,8 @@ export default {
     },
 
     handleManulDestory() {
+      // 释放createObjectURL创建的URL对象，清空FileList和移除剪切板监听
       this.fileList.forEach((file) => {
-        if (file.url && file.url.indexOf('blob:') === 0) {
-          URL.revokeObjectURL(file.url)
-        }
         if (file.previewUrl && file.previewUrl.indexOf('blob:') === 0) {
           URL.revokeObjectURL(file.previewUrl)
         }
@@ -375,28 +351,34 @@ export default {
   },
 
   mounted() {
-    // if (this.initFileListData.length) {
-    //   this.initFileListData.forEach((item) => {
-    //     this.fileList.push({
-    //       name: item.split('/').pop(),
-    //       url: item,
-    //     })
-    //   })
-    // }
+    if (this.needInitFileList) {
+      // 是否需求根据v-model数据初始化fileList
+      const fillFileList = (value, index) => {
+        this.fileList.push({
+          // forEach的速率有可能小于1ms导致uid一样，所以需要加上index
+          uid: new Date().getTime() + index,
+          type: this.limitFileType,
+          status: 'success',
+          percentage: 100,
+          name: String(value).split('/').pop(),
+          previewUrl: value,
+          [this.responseKey]: value,
+        })
+      }
+      if (Array.isArray(this.value)) {
+        this.value.forEach((item, index) => {
+          fillFileList(item, index)
+        })
+      } else if (this.value) {
+        fillFileList(this.value, 0)
+      }
+    }
+
     this.registerPasteEvent()
   },
 
   beforeDestroy() {
-    this.fileList.forEach((file) => {
-      if (file.url && file.url.indexOf('blob:') === 0) {
-        URL.revokeObjectURL(file.url)
-      }
-      if (file.previewUrl && file.previewUrl.indexOf('blob:') === 0) {
-        URL.revokeObjectURL(file.previewUrl)
-      }
-    })
-    this.fileList = []
-    document.removeEventListener('paste', this.handlePasteData, false)
+    this.handleManulDestory()
   },
 }
 </script>
