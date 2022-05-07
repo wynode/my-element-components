@@ -1,10 +1,10 @@
 <template>
   <div>
     <el-upload
-      id="upload_wy"
-      ref="upload_wy"
+      id="my_upload"
+      ref="my_upload"
       action=""
-      :accept="accept"
+      :accept="acceptComp"
       :fileList="fileList"
       :limit="limit"
       :on-exceed="handleExceed"
@@ -13,21 +13,24 @@
       :on-change="handleFileChange"
       :auto-upload="false"
       :list-type="listType"
+      :drag="draggable"
     >
-      <!-- <template v-if="listType === 'picture-card'">
-        <i slot="default" class="el-icon-plus"></i>
-        <div slot="tip" class="el-upload__tip">
-          单张图片大小不能超过{{ limitSize }}M，支持拖拽或复制粘贴上传。
-        </div>
-      </template> -->
-
-      <template>
-        <el-button size="small" type="primary">点击上传</el-button>
-        <div slot="tip" class="el-upload__tip">
-          可上传{{ limitFileType }}文件，且不超过
-          {{ limitSize }}m，支持剪切板上传
-        </div>
+      <!-- 拖拽显示 -->
+      <template v-if="draggable">
+        <i class="el-icon-upload"></i>
+        <div class="el-upload__text">将文件拖到此处，或<em>点击上传</em></div>
       </template>
+      <!-- 图片列表显示 -->
+      <template v-else-if="listType === 'picture-card'">
+        <i slot="default" class="el-icon-plus"></i>
+      </template>
+      <!-- 只有一个上传按钮 -->
+      <template v-else>
+        <el-button size="small" type="primary">点击上传</el-button>
+      </template>
+      <div slot="tip" class="el-upload__tip">
+        可上传{{ limitFileType }}文件，且不超过{{ limitSize }}m，支持剪切板上传
+      </div>
     </el-upload>
     <el-dialog :visible.sync="previewImageDialogVis" append-to-body top="5vh">
       <img width="100%" :src="previewImageUrl" alt="" />
@@ -37,17 +40,6 @@
 
 <script>
 import axios from 'axios'
-import { BACKEND, TOKEN_NAME } from '@/config'
-
-const $http = axios.create({
-  baseURL: BACKEND,
-  timeout: 3 * 60 * 1000, // 3 minutes
-  responseType: 'json',
-  headers: {
-    'Content-Type': 'application/json',
-    Accept: 'application/json',
-  },
-})
 
 export default {
   props: {
@@ -65,17 +57,9 @@ export default {
       type: String,
       default: '',
     },
-    responseKey: {
-      // 需要取的fileList里面的值，可以取
-      // raw（二进制binary）
-      // base64（base64）
-      // url，id等需后端返回的字段
+    limitFileType: {
+      // 提示文件的上传类型
       type: String,
-      default: 'raw',
-    },
-    value: {
-      // 从fileList里取responseKey的值，更新绑定。
-      type: [String, Number, Array],
       default: '',
     },
     limit: {
@@ -88,20 +72,42 @@ export default {
       type: Number,
       default: 5,
     },
-    limitFileType: {
-      // 限制文件上传类型（只做提示用）
+    responseKey: {
+      // 需要取的fileList里面的值，可以取
+      // raw（二进制binary）
+      // default (直接取后端发挥的res.data)
+      // base64（base64）
+      // url，id等需后端返回的字段
       type: String,
+      default: 'default',
+    },
+    value: {
+      // 从fileList里取responseKey的值，更新绑定。
+      type: [String, Number, Array],
       default: '',
     },
-    uploadFieldName: {
+    uploadFormDataKey: {
+      // 上传文件formdata的key
       type: String,
       default: 'file',
     },
     uploadUrl: {
+      // 上传完整url
+      type: String,
+      default: 'upload',
+    },
+    token: {
+      // 上传认证的Authorization
       type: String,
       default: '',
     },
+    data: {
+      // 上传的额外数据
+      type: Object,
+      default: () => ({}),
+    },
     listType: {
+      // 上传列表的样式，有text/picture/picture-card三种选项
       type: String,
       default: 'text',
     },
@@ -109,11 +115,17 @@ export default {
       type: Boolean,
       default: true,
     },
+    draggable: {
+      type: Boolean,
+      default: false,
+    },
     needBase64: {
+      // 是否需要上传文件的base64格式
       type: Boolean,
       default: false,
     },
     needInitFileList: {
+      // 是否需求根据v-model数据初始化fileList
       type: Boolean,
       default: true,
     },
@@ -128,16 +140,21 @@ export default {
   },
 
   computed: {
-    headers() {
-      const token = localStorage.getItem(TOKEN_NAME)
-      if (typeof token === 'string') {
-        return {
-          Authorization: `JWT ${token}`,
-        }
+    acceptComp() {
+      if (this.accept) {
+        return this.accept
       }
-      return {
-        Authorization: `JWT ${JSON.parse(token)}`,
+      const allowAll = ['image', 'audio', 'video']
+      if (allowAll.includes(this.limitFileType)) {
+        return `${this.limitFileType}/*`
       }
+      if (this.limitFileType === 'excel') {
+        return '.xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      }
+      if (this.limitFileType === 'word') {
+        return '.doc,.docx,.xml,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      }
+      return ''
     },
   },
 
@@ -171,6 +188,8 @@ export default {
     // 更新responseValue即上传后返回的值
     updateResponseValue() {
       const res = this.fileList.map((item) => item[this.responseKey] || '')
+      console.log(res)
+      debugger
       if (this.limit === 1) {
         this.$emit('input', res[0])
       } else {
@@ -180,9 +199,9 @@ export default {
 
     // 文件超过数量钩子
     handleExceed(files, fileList) {
-      const tip = `当前限制选择 ${this.limit} 个文件，本次选择了 ${
-        files.length
-      } 个文件，共选择了 ${files.length + fileList.length} 个文件`
+      const tip = `当前限制选择 ${this.limit} 个文件，本次选择了 ${files.length} 个文件，共选择了 ${
+        files.length + fileList.length
+      } 个文件`
       this.$message.warning(tip)
     },
 
@@ -218,7 +237,7 @@ export default {
         type: comFile.raw && comFile.raw.type,
         percentage: 0,
         status: 'ready',
-        previewUrl: URL.createObjectURL(comFile.raw),
+        url: URL.createObjectURL(comFile.raw),
         base64: base64Data,
       })
       // 不需要上传
@@ -227,33 +246,48 @@ export default {
         return
       }
       // 直接上传
-      this.submit(this.fileList.slice(-1)[0])
+      this.submit(this.fileList.slice(-1)[0], 0)
     },
 
     // 上传传入的单个file
-    submit(comFile) {
+    submit(comFile, index) {
       const formData = new FormData()
       // 表单名称，表单的值，传给服务器的名称
-      formData.append(this.uploadFieldName, comFile.raw, comFile.name)
-      $http
+      formData.append(this.uploadFormDataKey, comFile.raw, comFile.name)
+      if (Object.keys(this.data || {}).length) {
+        Object.keys(this.data).forEach((key) => {
+          formData.append(key, this.data[key])
+        })
+      }
+      const that = this
+      axios
         .post(this.uploadUrl, formData, {
           headers: {
-            ...this.headers,
+            Authorization: this.token,
+          },
+          onUploadProgress: (e) => {
+            if (e.total > 0) {
+              const file = that.fileList[index]
+              file.status = 'uploading'
+              file.percentage = (e.loaded / e.total) * 100
+            }
           },
         })
         .then((res) => {
+          if (!res.data) return
           this.handleSuccess(res.data, comFile)
         })
         .catch((error) => {
           this.handleDealWithUploadError(error)
+          this.handleRemove(comFile)
         })
     },
 
     // 手动上传文件列表（提供给外部调用）
     submitFileList() {
       if (this.fileList.length) {
-        this.fileList.forEach((item) => {
-          this.submit(item || {})
+        this.fileList.forEach((item, index) => {
+          this.submit(item || {}, index)
         })
       } else {
         this.$message.error('未选择或粘贴文件')
@@ -262,30 +296,32 @@ export default {
 
     async handleSuccess(res, file) {
       let responseKeyValue = ''
-      if (res && this.responseKey) {
+      if (this.responseKey === 'default') {
+        responseKeyValue = res
+      } else {
         responseKeyValue = res[this.responseKey]
       }
-      this.fileList.forEach((item) => {
+      this.fileList = this.fileList.map((item) => {
         if (file.uid === item.uid) {
-          item.percentage = 100
-          item.status = 'success'
-          item[this.responseKey] = responseKeyValue
+          return {
+            ...item,
+            percentage: 100,
+            status: 'success',
+            [this.responseKey]: responseKeyValue,
+          }
         }
+        return item
       })
       this.updateResponseValue()
       this.$emit('success')
     },
 
-    // handleProgress(event, file, fileList) {
-    //   console.log(event, file, fileList)
-    // },
-
     handlePreview(comFile) {
       if (comFile.type && comFile.type.includes('image')) {
-        this.previewImageUrl = comFile.previewUrl
+        this.previewImageUrl = comFile.url
         this.previewImageDialogVis = true
       } else {
-        window.open(comFile.previewUrl || comFile.url, '_blank')
+        window.open(comFile.url || comFile.url, '_blank')
       }
     },
 
@@ -304,10 +340,7 @@ export default {
       }
       const clipboardItems = e.clipboardData.items
       for (let i = 0; i < clipboardItems.length; i += 1) {
-        if (
-          clipboardItems[i].kind === 'string' &&
-          clipboardItems[i].type.match('^text/plain')
-        ) {
+        if (clipboardItems[i].kind === 'string' && clipboardItems[i].type.match('^text/plain')) {
           // 此方法可用于获取剪切板文字
           // clipboardItems[i].getAsString(function(text) {
           //   console.log(text)
@@ -341,8 +374,8 @@ export default {
     handleManulDestory() {
       // 释放createObjectURL创建的URL对象，清空FileList和移除剪切板监听
       this.fileList.forEach((file) => {
-        if (file.previewUrl && file.previewUrl.indexOf('blob:') === 0) {
-          URL.revokeObjectURL(file.previewUrl)
+        if (file.url && file.url.indexOf('blob:') === 0) {
+          URL.revokeObjectURL(file.url)
         }
       })
       this.fileList = []
@@ -357,11 +390,10 @@ export default {
         this.fileList.push({
           // forEach的速率有可能小于1ms导致uid一样，所以需要加上index
           uid: new Date().getTime() + index,
-          type: this.limitFileType,
           status: 'success',
           percentage: 100,
           name: String(value).split('/').pop(),
-          previewUrl: value,
+          url: value,
           [this.responseKey]: value,
         })
       }
@@ -384,9 +416,8 @@ export default {
 </script>
 
 <style lang="scss">
-#upload_wy {
+#my_upload {
   .el-upload--picture-card {
-    border: none;
     width: 148px;
     height: 148px;
     .el-upload-dragger {

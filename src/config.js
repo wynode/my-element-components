@@ -1,2 +1,2 @@
-export const BACKEND = 'http://www.wynode.com'
+export const BACKEND = 'http://localhost:8080/proxy'
 export const TOKEN_NAME = 'token'

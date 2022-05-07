@@ -18,4 +18,14 @@ module.exports = {
       // 在这种情况下，我们可以使用 `scss` 选项，对 `scss` 语法进行单独配置
     },
   },
+  devServer: {
+    proxy: {
+      '/proxy': {
+        target: 'http://150.158.33.185:3000',
+        pathRewrite: {
+          '/proxy': '',
+        },
+      },
+    },
+  },
 }

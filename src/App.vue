@@ -1,7 +1,15 @@
 <template>
   <div id="app">
-    {{ image }}
-    <MyUpload v-model="image" :autoUpload="false" responseKey="previewUrl" />
+    <MyUpload
+      ref="MyUpload"
+      v-model="image"
+      :autoUpload="false"
+      responseKey="url"
+      :limitSize="10"
+      :limit="5"
+      listType="picture-card"
+    />
+    <el-button @click="handleSubmit">点击上传</el-button>
   </div>
 </template>
 
@@ -13,11 +21,13 @@ export default {
   },
   data() {
     return {
-      image: [
-        'blob:http://localhost:8080/8130f053-2f93-4d1f-8f9b-211e97883655',
-        'blob:http://localhost:8080/8130f053-2f93-4d1f-8f9b-211e97883655',
-      ],
+      image: [],
     }
+  },
+  methods: {
+    handleSubmit() {
+      this.$refs.MyUpload.submitFileList()
+    },
   },
 }
 </script>
