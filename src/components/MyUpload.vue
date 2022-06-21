@@ -129,6 +129,10 @@ export default {
       type: Boolean,
       default: true,
     },
+    valueFormat: {
+      type: Function,
+      default: (value) => value,
+    },
   },
 
   data() {
@@ -159,178 +163,76 @@ export default {
   },
 
   methods: {
-    // 二进制binary转base64
-    transFile2Base64(fileObj) {
-      const reader = new FileReader()
-      return new Promise((resolve) => {
-        reader.onload = () => {
-          resolve(reader.result)
-        }
-        reader.readAsDataURL(fileObj)
-      })
-    },
-
-    // 处理上传错误
-    handleDealWithUploadError(error) {
-      let { data: errorMsg } = error.response || {}
-      // 这么写是为了防止data是null
-      errorMsg = errorMsg || '上传出现错误，请联系管理员'
-      if (typeof errorMsg === 'string') {
-        this.$message.error(errorMsg)
-      } else if (typeof errorMsg === 'object') {
-        const errorMsgList = Object.values(errorMsg)
-        if (errorMsgList.length) {
-          this.$message.error(`${errorMsgList}`)
-        }
-      }
-    },
-
-    // 更新responseValue即上传后返回的值
-    updateResponseValue() {
-      const res = this.fileList.map((item) => item[this.responseKey] || '')
-      console.log(res)
-      debugger
-      if (this.limit === 1) {
-        this.$emit('input', res[0])
-      } else {
-        this.$emit('input', res)
-      }
-    },
-
-    // 文件超过数量钩子
-    handleExceed(files, fileList) {
-      const tip = `当前限制选择 ${this.limit} 个文件，本次选择了 ${files.length} 个文件，共选择了 ${
-        files.length + fileList.length
-      } 个文件`
-      this.$message.warning(tip)
-    },
-
-    // 上传之前检查是否为空和文件大小
-    beforeUpload(file = { size: 0, type: '' }) {
-      if (!file || file.size === 0) {
-        this.$message.error('不能上传空文件')
-        return false
-      }
-      const isLimitScope = file.size / 1024 / 1024 < this.limitSize
-      if (!isLimitScope) {
-        this.$message.error(`上传的文件大小不能超过 ${this.limitSize}MB!`)
-        return false
-      }
-      return true
-    },
-
-    // 用户选择文件或者粘贴复制文件后的钩子
-    async handleFileChange(comFile) {
-      if (!this.beforeUpload(comFile.raw)) {
-        this.handleRemove(comFile)
-        return
-      }
-      let base64Data = ''
-      if (this.needBase64) {
-        base64Data = await this.transFile2Base64(comFile.raw)
-      }
-      this.fileList.push({
-        uid: new Date().getTime(),
-        name: comFile.name,
-        size: comFile.size,
-        raw: comFile.raw,
-        type: comFile.raw && comFile.raw.type,
-        percentage: 0,
-        status: 'ready',
-        url: URL.createObjectURL(comFile.raw),
-        base64: base64Data,
-      })
-      // 不需要上传
-      if (!this.autoUpload) {
-        this.updateResponseValue()
-        return
-      }
-      // 直接上传
-      this.submit(this.fileList.slice(-1)[0], 0)
-    },
-
-    // 上传传入的单个file
-    submit(comFile, index) {
+    // 上传FileList的单个file
+    submit(file) {
       const formData = new FormData()
       // 表单名称，表单的值，传给服务器的名称
-      formData.append(this.uploadFormDataKey, comFile.raw, comFile.name)
+      formData.append(this.uploadFormDataKey, file.raw, file.name)
       if (Object.keys(this.data || {}).length) {
         Object.keys(this.data).forEach((key) => {
           formData.append(key, this.data[key])
         })
       }
-      const that = this
-      axios
+      return axios
         .post(this.uploadUrl, formData, {
           headers: {
             Authorization: this.token,
           },
           onUploadProgress: (e) => {
             if (e.total > 0) {
-              const file = that.fileList[index]
               file.status = 'uploading'
               file.percentage = (e.loaded / e.total) * 100
             }
           },
         })
         .then((res) => {
-          if (!res.data) return
-          this.handleSuccess(res.data, comFile)
+          this.handleSuccess(res, file)
         })
         .catch((error) => {
           this.handleDealWithUploadError(error)
-          this.handleRemove(comFile)
+          this.handleRemove(file)
         })
     },
 
     // 手动上传文件列表（提供给外部调用）
     submitFileList() {
       if (this.fileList.length) {
-        this.fileList.forEach((item, index) => {
-          this.submit(item || {}, index)
-        })
+        return this.fileList.map((item) => item.upload(item))
       } else {
         this.$message.error('未选择或粘贴文件')
       }
     },
 
-    async handleSuccess(res, file) {
-      let responseKeyValue = ''
-      if (this.responseKey === 'default') {
-        responseKeyValue = res
-      } else {
-        responseKeyValue = res[this.responseKey]
+    // 用户选择文件或者粘贴复制文件后的钩子
+    async handleFileChange(file) {
+      if (!this.beforeUpload(file.raw)) {
+        this.handleRemove(file)
+        return
       }
-      this.fileList = this.fileList.map((item) => {
-        if (file.uid === item.uid) {
-          return {
-            ...item,
-            percentage: 100,
-            status: 'success',
-            [this.responseKey]: responseKeyValue,
-          }
-        }
-        return item
-      })
-      this.updateResponseValue()
-      this.$emit('success')
-    },
-
-    handlePreview(comFile) {
-      if (comFile.type && comFile.type.includes('image')) {
-        this.previewImageUrl = comFile.url
-        this.previewImageDialogVis = true
-      } else {
-        window.open(comFile.url || comFile.url, '_blank')
+      let base64Data = ''
+      if (this.needBase64) {
+        base64Data = await this.transFile2Base64(file.raw)
       }
-    },
-
-    handleRemove(comFile) {
-      this.fileList = this.fileList.filter((item) => {
-        return item.uid !== comFile.uid
-      })
-      this.updateResponseValue()
-      this.$emit('remove')
+      const comFile = {
+        uid: new Date().getTime(),
+        name: file.name,
+        size: file.size,
+        raw: file.raw,
+        type: file.raw && file.raw.type,
+        percentage: 0,
+        status: 'ready',
+        url: URL.createObjectURL(file.raw),
+        base64: base64Data,
+        upload: this.submit,
+      }
+      this.fileList.push(comFile)
+      // 不需要上传
+      if (!this.autoUpload) {
+        this.updateResponseValue()
+        return
+      }
+      // 直接上传
+      comFile.upload(comFile)
     },
 
     async handlePasteData(e) {
@@ -365,6 +267,98 @@ export default {
       }
 
       return true
+    },
+
+    // 二进制binary转base64
+    transFile2Base64(fileObj) {
+      const reader = new FileReader()
+      return new Promise((resolve) => {
+        reader.onload = () => {
+          resolve(reader.result)
+        }
+        reader.readAsDataURL(fileObj)
+      })
+    },
+
+    // 更新responseValue即上传后返回的值
+    updateResponseValue() {
+      const res = this.fileList.map((item) => item[this.responseKey] || '')
+      this.$emit('input', this.valueFormat(res))
+    },
+
+    // 文件超过数量钩子
+    handleExceed(files, fileList) {
+      const tip = `当前限制选择 ${this.limit} 个文件，本次选择了 ${files.length} 个文件，共选择了 ${
+        files.length + fileList.length
+      } 个文件`
+      this.$message.warning(tip)
+    },
+
+    // 上传之前检查是否为空和文件大小
+    beforeUpload(file = { size: 0, type: '' }) {
+      if (!file || file.size === 0) {
+        this.$message.error('不能上传空文件')
+        return false
+      }
+      const isLimitScope = file.size / 1024 / 1024 < this.limitSize
+      if (!isLimitScope) {
+        this.$message.error(`上传的文件大小不能超过 ${this.limitSize}MB!`)
+        return false
+      }
+      return true
+    },
+
+    // 处理上传错误
+    handleDealWithUploadError(error = {}) {
+      const response = error.response || {}
+      let errorMsg = '上传出现错误，请联系管理员'
+      if (response.status === 500) {
+        errorMsg = '服务器处理出错，请联系管理员'
+      } else if (response.data && typeof response.data === 'string') {
+        errorMsg = response.data
+      } else if (typeof response.data === 'object') {
+        const errorMsgList = Object.values(response.data)
+        if (errorMsgList.length) {
+          errorMsg = `${errorMsgList}`
+        }
+      }
+      this.$message.error(errorMsg)
+    },
+
+    async handleSuccess(response, file) {
+      const data = response.data || {}
+      let responseKeyValue = this.responseKey === 'default' ? data : data[this.responseKey]
+
+      this.fileList = this.fileList.map((item) => {
+        if (file.uid === item.uid) {
+          return {
+            ...item,
+            percentage: 100,
+            status: 'success',
+            [this.responseKey]: responseKeyValue,
+          }
+        }
+        return item
+      })
+      this.updateResponseValue()
+      this.$emit('success')
+    },
+
+    handlePreview(comFile) {
+      if (comFile.type && comFile.type.includes('image')) {
+        this.previewImageUrl = comFile.url
+        this.previewImageDialogVis = true
+      } else {
+        window.open(comFile.url || comFile.url, '_blank')
+      }
+    },
+
+    handleRemove(comFile) {
+      this.fileList = this.fileList.filter((item) => {
+        return item.uid !== comFile.uid
+      })
+      this.updateResponseValue()
+      this.$emit('remove')
     },
 
     registerPasteEvent() {

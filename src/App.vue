@@ -5,7 +5,7 @@
       v-model="image"
       :autoUpload="false"
       responseKey="url"
-      :limitSize="10"
+      :limitSize="100"
       :limit="5"
       listType="picture-card"
     />
