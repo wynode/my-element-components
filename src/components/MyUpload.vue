@@ -75,7 +75,7 @@ export default {
     responseKey: {
       // 需要取的fileList里面的值，可以取
       // raw（二进制binary）
-      // default (直接取后端发挥的res.data)
+      // default (直接取后端发的res.data)
       // base64（base64）
       // url，id等需后端返回的字段
       type: String,
