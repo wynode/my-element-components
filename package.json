@@ -4,16 +4,20 @@
   "private": true,
   "scripts": {
     "serve": "vue-cli-service serve",
+    "start": "vue-cli-service serve",
     "build": "vue-cli-service build",
     "lint": "vue-cli-service lint"
   },
   "dependencies": {
     "axios": "^0.26.1",
     "core-js": "^3.6.5",
+    "cropperjs": "^1.5.13",
     "element-ui": "^2.15.6",
-    "vue": "^2.6.11",
+    "normalize.css": "^8.0.1",
     "swiper": "5.4.5",
-    "vue-awesome-swiper": "4.1.1"
+    "vue": "^2.6.11",
+    "vue-awesome-swiper": "4.1.1",
+    "vue-router": "4"
   },
   "devDependencies": {
     "@vue/cli-plugin-babel": "~4.5.15",

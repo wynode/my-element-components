@@ -33,7 +33,8 @@
       </div>
     </el-upload>
     <el-dialog :visible.sync="previewImageDialogVis" append-to-body top="5vh">
-      <img width="100%" :src="previewImageUrl" alt="" />
+      <el-image style="width: 100%" :src="previewImageUrl">
+      </el-image>
     </el-dialog>
   </div>
 </template>
@@ -70,7 +71,7 @@ export default {
     limitSize: {
       // 限制单个文件大小
       type: Number,
-      default: 5,
+      default: 2,
     },
     responseKey: {
       // 需要取的fileList里面的值，可以取
@@ -96,13 +97,18 @@ export default {
       type: String,
       default: 'upload',
     },
-    token: {
+    uploadToken: {
       // 上传认证的Authorization
       type: String,
       default: '',
     },
     data: {
       // 上传的额外数据
+      type: Object,
+      default: () => ({}),
+    },
+    uploadFormDataFileListKey: {
+      // 需要上传的fileList里面的数据的key键值对
       type: Object,
       default: () => ({}),
     },
@@ -120,6 +126,11 @@ export default {
       default: false,
     },
     needBase64: {
+      // 是否需要base64格式
+      type: Boolean,
+      default: false,
+    },
+    needUploadBase64: {
       // 是否需要上传文件的base64格式
       type: Boolean,
       default: false,
@@ -129,9 +140,17 @@ export default {
       type: Boolean,
       default: true,
     },
-    valueFormat: {
+    vModelFormat: {
       type: Function,
-      default: (value) => value,
+      default: null,
+    },
+    myBeforeUpload: {
+      type: Function,
+      default: null,
+    },
+    fileListInitFunc: {
+      type: Function,
+      default: null,
     },
   },
 
@@ -139,58 +158,87 @@ export default {
     return {
       previewImageDialogVis: false,
       previewImageUrl: '',
+      previewImageUrlList: '',
       fileList: [],
     }
   },
 
   computed: {
+    acceptType() {
+      return {
+        image: 'image/*,',
+        audio: 'audio/*',
+        video: 'video/*',
+        pdf: '.pdf',
+        excel:
+          '.xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        word: '.doc,.docx,.xml,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      }
+    },
+
     acceptComp() {
       if (this.accept) {
         return this.accept
       }
-      const allowAll = ['image', 'audio', 'video']
-      if (allowAll.includes(this.limitFileType)) {
-        return `${this.limitFileType}/*`
-      }
-      if (this.limitFileType === 'excel') {
-        return '.xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-      }
-      if (this.limitFileType === 'word') {
-        return '.doc,.docx,.xml,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-      }
-      return ''
+      const compileAccept = []
+      Object.keys(this.acceptType).forEach((item) => {
+        if (this.limitFileType.includes(item)) {
+          compileAccept.push(this.acceptType[item])
+        }
+      })
+      return compileAccept.join(',')
     },
   },
 
   methods: {
     // 上传FileList的单个file
-    submit(file) {
-      const formData = new FormData()
+    submit(comFile) {
+      let formData = new FormData()
       // 表单名称，表单的值，传给服务器的名称
-      formData.append(this.uploadFormDataKey, file.raw, file.name)
+      if (this.needUploadBase64) {
+        formData = { [this.uploadFormDataKey]: comFile.base64 }
+      } else {
+        formData.append(this.uploadFormDataKey, comFile.raw, comFile.name)
+      }
       if (Object.keys(this.data || {}).length) {
         Object.keys(this.data).forEach((key) => {
-          formData.append(key, this.data[key])
+          if (this.needUploadBase64) {
+            formData[key] = this.data[key]
+          } else {
+            formData.append(key, this.data[key])
+          }
         })
       }
+      if (Object.keys(this.uploadFormDataFileListKey || {}).length) {
+        Object.keys(this.uploadFormDataFileListKey).forEach((key) => {
+          if (Object.keys(comFile).includes(key)) {
+            if (this.needUploadBase64) {
+              formData[this.uploadFormDataFileListKey[key]] = comFile[key]
+            } else {
+              formData.append(this.uploadFormDataFileListKey[key], comFile[key])
+            }
+          }
+        })
+      }
+      this.$emit('uploading')
       return axios
         .post(this.uploadUrl, formData, {
           headers: {
-            Authorization: this.token,
+            Authorization: this.uploadToken,
           },
           onUploadProgress: (e) => {
             if (e.total > 0) {
-              file.status = 'uploading'
-              file.percentage = (e.loaded / e.total) * 100
+              comFile.status = 'uploading'
+              comFile.percentage = (e.loaded / e.total) * 100
             }
           },
         })
         .then((res) => {
-          this.handleSuccess(res, file)
+          this.handleSuccess(res, comFile)
         })
         .catch((error) => {
           this.handleDealWithUploadError(error)
-          this.handleRemove(file)
+          this.handleRemove(comFile)
         })
     },
 
@@ -198,17 +246,13 @@ export default {
     submitFileList() {
       if (this.fileList.length) {
         return this.fileList.map((item) => item.upload(item))
-      } else {
-        this.$message.error('未选择或粘贴文件')
       }
+      this.$message.error('未选择或粘贴文件')
+      return ''
     },
 
     // 用户选择文件或者粘贴复制文件后的钩子
     async handleFileChange(file) {
-      if (!this.beforeUpload(file.raw)) {
-        this.handleRemove(file)
-        return
-      }
       let base64Data = ''
       if (this.needBase64) {
         base64Data = await this.transFile2Base64(file.raw)
@@ -224,6 +268,15 @@ export default {
         url: URL.createObjectURL(file.raw),
         base64: base64Data,
         upload: this.submit,
+      }
+      if (!this.beforeUpload(comFile)) {
+        // 因为element内部维护了一个uploadFiles渲染uploadList列表 所以需要更新一下fileList（uploadFiles监听了fileList）
+        this.handleRemove(comFile)
+        return
+      }
+      if (this.myBeforeUpload && !this.myBeforeUpload(comFile, this.fileList)) {
+        this.handleRemove(comFile)
+        return
       }
       this.fileList.push(comFile)
       // 不需要上传
@@ -282,8 +335,13 @@ export default {
 
     // 更新responseValue即上传后返回的值
     updateResponseValue() {
-      const res = this.fileList.map((item) => item[this.responseKey] || '')
-      this.$emit('input', this.valueFormat(res))
+      if (this.vModelFormat) {
+        this.$emit('input', this.vModelFormat(this.fileList))
+      } else {
+        const res = this.fileList.map((item) => item[this.responseKey] || '')
+        this.$emit('input', res)
+      }
+      this.$emit('fileList', this.fileList)
     },
 
     // 文件超过数量钩子
@@ -299,6 +357,13 @@ export default {
       if (!file || file.size === 0) {
         this.$message.error('不能上传空文件')
         return false
+      }
+      if (file.type && this.limitFileType) {
+        const fileType = ['audio', 'video', 'image']
+        if (fileType.includes(this.limitFileType) && !file.type.includes(this.limitFileType)) {
+          this.$message.error('上传文件类型不符合要求')
+          return false
+        }
       }
       const isLimitScope = file.size / 1024 / 1024 < this.limitSize
       if (!isLimitScope) {
@@ -323,11 +388,12 @@ export default {
         }
       }
       this.$message.error(errorMsg)
+      this.$emit('error')
     },
 
     async handleSuccess(response, file) {
       const data = response.data || {}
-      let responseKeyValue = this.responseKey === 'default' ? data : data[this.responseKey]
+      const responseKeyValue = this.responseKey === 'default' ? data : data[this.responseKey]
 
       this.fileList = this.fileList.map((item) => {
         if (file.uid === item.uid) {
@@ -341,12 +407,13 @@ export default {
         return item
       })
       this.updateResponseValue()
-      this.$emit('success')
+      this.$emit('success', response)
     },
 
     handlePreview(comFile) {
       if (comFile.type && comFile.type.includes('image')) {
         this.previewImageUrl = comFile.url
+        this.previewImageUrlList = this.fileList.map((item) => item.url || '')
         this.previewImageDialogVis = true
       } else {
         window.open(comFile.url || comFile.url, '_blank')
@@ -375,31 +442,36 @@ export default {
       this.fileList = []
       document.removeEventListener('paste', this.handlePasteData, false)
     },
+
+    handleInitFileList(initData) {
+      if (this.fileListInitFunc) {
+        this.fileList = this.fileListInitFunc(initData)
+      } else {
+        const fillFileList = (value, index) => {
+          const uid = new Date().getTime() + index
+          this.fileList.push({
+            // forEach的速率有可能小于1ms导致uid一样，所以需要加上index
+            uid,
+            status: 'success',
+            percentage: 100,
+            name: String(value).includes('base64') ? uid : String(value).split('/').pop(),
+            url: value,
+            [this.responseKey]: value,
+          })
+        }
+        if (Array.isArray(initData)) {
+          initData.forEach((item, index) => {
+            fillFileList(item, index)
+          })
+        } else if (initData && typeof initData === 'string') {
+          fillFileList(initData, 0)
+        }
+      }
+    },
   },
 
   mounted() {
-    if (this.needInitFileList) {
-      // 是否需求根据v-model数据初始化fileList
-      const fillFileList = (value, index) => {
-        this.fileList.push({
-          // forEach的速率有可能小于1ms导致uid一样，所以需要加上index
-          uid: new Date().getTime() + index,
-          status: 'success',
-          percentage: 100,
-          name: String(value).split('/').pop(),
-          url: value,
-          [this.responseKey]: value,
-        })
-      }
-      if (Array.isArray(this.value)) {
-        this.value.forEach((item, index) => {
-          fillFileList(item, index)
-        })
-      } else if (this.value) {
-        fillFileList(this.value, 0)
-      }
-    }
-
+    this.handleInitFileList(this.value)
     this.registerPasteEvent()
   },
 
